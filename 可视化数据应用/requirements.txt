@@ -6,3 +6,4 @@ xlsxwriter
 seaborn
 matplotlib
 numpy
+openai>=1.0.0

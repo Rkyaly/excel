@@ -4,6 +4,14 @@ import plotly.graph_objects as go
 import numpy as np
 import streamlit as st
 
+# 初始化session state
+if 'qwen_api_key' not in st.session_state:
+    st.session_state.qwen_api_key = ''
+if 'qwen_base_url' not in st.session_state:
+    st.session_state.qwen_base_url = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+if 'qwen_model' not in st.session_state:
+    st.session_state.qwen_model = 'qwen-flash'
+
 
 def load_css():
     """加载统一的CSS样式"""
@@ -103,6 +111,91 @@ def render_sidebar():                #渲染侧边栏
     st.sidebar.markdown('<div class="sidebar">', unsafe_allow_html=True)
     st.sidebar.header("菜单栏")
 
+    # 通义千问配置
+    with st.sidebar.expander("🤖 AI模型配置", expanded=False):
+        # API Key输入
+        qwen_api_key = st.text_input(
+            "API Key",
+            value=st.session_state.qwen_api_key,
+            type="password",
+            help="输入AI模型的API Key",
+            key="qwen_api_key_input"
+        )
+        st.session_state.qwen_api_key = qwen_api_key
+        
+        # Base URL输入
+        qwen_base_url = st.text_input(
+            "Base URL",
+            value=st.session_state.qwen_base_url,
+            help="输入v的Base URL",
+            key="qwen_base_url_input"
+        )
+        st.session_state.qwen_base_url = qwen_base_url
+        
+        # 模型选择
+        qwen_model = st.selectbox(
+            "模型",
+            options=["qwen-flash", "qwen-plus"],
+            index=0 if st.session_state.qwen_model == "qwen-flash" else 1,
+            help="选择使用的AI模型",
+            key="qwen_model_select"
+        )
+        st.session_state.qwen_model = qwen_model
+
+        # 生成人员评价功能
+        st.markdown("---")
+        st.markdown("**生成人员评价**")
+        
+        # # 提示信息
+        # st.info("请在主页面中选择人员数据，然后点击下方按钮生成评价")
+        
+        # 生成评价按钮
+        generate_eval_btn = st.button(
+            "📝 生成人员评价",
+            key="generate_evaluation_btn",
+            help="根据主页面中筛选的人员数据生成评价",
+            use_container_width=True
+        )
+        
+        # 显示评价结果
+        if generate_eval_btn:
+            # 获取主页面中的筛选数据
+            if 'filtered_df' in st.session_state and len(st.session_state.filtered_df) > 0:
+                with st.spinner('正在生成评价...'):
+                    # 准备人员数据
+                    person_name = st.session_state.filtered_df.iloc[0].iloc[0]
+                    person_data = st.session_state.filtered_df.iloc[0].to_dict()
+                    import json
+                    person_data_str = json.dumps(person_data, ensure_ascii=False, indent=2)
+                    
+                    # 使用qianwen_api中的函数生成评价
+                    from qianwen_api import generate_evaluation
+                    evaluation = generate_evaluation(
+                        person_data_str,
+                        person_name,
+                        api_key=st.session_state.qwen_api_key,
+                        base_url=st.session_state.qwen_base_url,
+                        model=st.session_state.qwen_model
+                    )
+                    
+                    # 检查评价结果是否包含错误信息
+                    if evaluation.startswith("生成评价时出错") or evaluation.startswith("生成失败"):
+                        # 解析错误信息，提供更友好的提示
+                        error_msg = evaluation
+                        if "401" in error_msg or "API key" in error_msg:
+                            st.error("⚠️ API Key 未配置或无效，请在侧边栏中检查您的 API Key")
+                        elif "404" in error_msg:
+                            st.error("⚠️ API 地址未找到，请检查 Base URL 配置")
+                        elif "timeout" in error_msg.lower() or "连接" in error_msg:
+                            st.error("⚠️ 网络连接超时，请检查网络连接或稍后重试")
+                        else:
+                            st.error(f"⚠️ {evaluation}")
+                    else:
+                        st.markdown("**评价结果：**")
+                        st.markdown(evaluation)
+            else:
+                st.warning("请先在主页面中选择人员数据")
+
 
     
     return None
@@ -154,7 +247,8 @@ def filter_data(df):
             "选择筛选列索引",
             options=column_indices,
             index=0,
-            help="选择要筛选的列索引，从0开始计数"
+            help="选择要筛选的列索引，从0开始计数",
+            key="filter_col_index"
         )
         
         # 获取选中列的名称
@@ -169,42 +263,46 @@ def filter_data(df):
             f"选择{selected_column}的值",
             options=unique_values,
             index=0,
-            help="可输入搜索值"
+            help="可输入搜索值",
+            key="filter_col_value"
         )
         
         # 执行筛选
         filtered_df = df[df[selected_column] == selected_value]
         st.info(f"筛选后数据行数: {len(filtered_df)}")
+        
+        # 将筛选后的数据保存到session_state中
+        st.session_state.filtered_df = filtered_df
     except Exception as e:
         st.error(f"筛选数据时出错: {str(e)}")
         # 如果筛选出错，使用原始数据
         filtered_df = df.copy()
+        st.session_state.filtered_df = filtered_df
     return filtered_df
 
 
 def configure_radar_chart(df):
     """配置雷达图"""
-    st.sidebar.subheader("图表配置")
-    
     # 雷达图配置
-    st.sidebar.markdown("<h4 style='margin-bottom: 10px;'>📊 雷达图配置</h4>", unsafe_allow_html=True)
-    # 初始化顶点列列表
-    numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
+    with st.sidebar.expander("📊 图表配置", expanded=False):
     
-    # 添加雷达图坐标模式选择
-    invert_radar_coords = st.sidebar.checkbox(
-        "反转雷达图坐标",
-        value=True,
-        help="勾选后：外部边线为0点，数据越大顶点越靠近中心；取消勾选：中心为0点，数据越大顶点越高"
-    )
+        # 初始化顶点列列表
+        numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
     
-    if len(numeric_columns) >= 2:
-        # 直接使用所有数值列作为顶点列
-        vertex_cols = numeric_columns
-    else:
-        st.sidebar.warning("数据中至少需要2个数值列来创建雷达图")
-        vertex_cols = []
-        invert_radar_coords = False
+        # 添加雷达图坐标模式选择
+        invert_radar_coords = st.checkbox(
+            "反转雷达图坐标",
+            value=True,
+            help="勾选后：外部边线为0点，数据越大顶点越靠近中心；取消勾选：中心为0点，数据越大顶点越高"
+        )
+    
+        if len(numeric_columns) >= 2:
+            # 直接使用所有数值列作为顶点列
+            vertex_cols = numeric_columns
+        else:
+            st.warning("数据中至少需要2个数值列来创建雷达图")
+            vertex_cols = []
+            invert_radar_coords = False
     
     return vertex_cols, invert_radar_coords
 
@@ -294,10 +392,10 @@ def render_radar_chart(vertex_cols, current_name, sheet_names, sheet_dfs, invert
                             
                             fig_radar.update_layout(
                                 polar=dict(radialaxis=radial_axis_config),
-                                height=350,  # 增加雷达图高度，避免名称被遮挡
-                                margin=dict(l=20, r=20, t=50, b=40),  # 增加top边距，让雷达图整体下移
+                                height=280,  # 缩小雷达图高度
+                                margin=dict(l=15, r=15, t=40, b=30),  # 调整边距
                                 template="plotly_white",
-                                font=dict(size=10)  # 图表内部字体比h4小两号
+                                font=dict(size=9)  # 调整字体大小
                             )
                             st.plotly_chart(fig_radar, use_container_width=True)
                 else:
@@ -592,8 +690,8 @@ def main():
     # 加载CSS
     load_css()
     
-    # 渲染侧边栏
-    render_sidebar()
+    # 渲染侧边栏并获取API密钥
+    api_key = render_sidebar()
     
     # 1. 主页面标题 - 简洁显示
     # 以下代码已注释，如需恢复带样式的标题容器可取消注释
@@ -632,33 +730,70 @@ def main():
             
             # 检查初始数据是否为空
             if len(df) > 0:
-                # 第一行：左侧显示数据筛选，中间留空白，右侧显示雷达图（保持原始大小）
+                # 第一行：左侧显示数据筛选，右侧显示雷达图
                 st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                # 使用三列布局，中间列作为空白分隔
-                row1_col1, row1_col_space, row1_col2 = st.columns([0.7, 0.3, 1])  # 中间0.3列为空白
+                # 使用两列布局，左侧显示数据筛选，右侧显示雷达图
+                row1_col1, row1_col2, row1_col3 = st.columns([0.4, 0.1, 0.5])
                 
                 with row1_col1:
                     # 调用筛选数据函数，获取筛选后的结果
                     filtered_df = filter_data(df)
-                    
-                    # 检查筛选后的数据是否为空
+
+                    # 显示选中人员信息（大字体）
                     if len(filtered_df) > 0:
-                        # 显示较大的人名（筛选后的数据），向右调整
-                        # 显示较大的人名（筛选后的数据），向右并向下调整
                         st.markdown(f"<h1 style='color: #4a5568; font-weight: 800; margin-bottom: 0; margin-left: 100px; margin-top: 30px;'>{filtered_df.iloc[0].iloc[0]}</h1>", unsafe_allow_html=True)
                         st.markdown(f"<p style='color: #718096; margin-top: 0; margin-bottom: 2rem; margin-left: 100px; '>当前选中人员数据</p>", unsafe_allow_html=True)
+
+                # 中间空白列   
+                row1_col2.write("")  
                 
-                # 中间列为空白，不显示任何内容
-                with row1_col_space:
-                    st.write(" ")  # 只添加一个空格作为分隔
-                
-                with row1_col2:
+                # 右侧显示雷达图
+                with row1_col3:
                     # 检查筛选后的数据是否为空
                     if len(filtered_df) > 0:
                         # 生成雷达图（使用用户选择的顶点列）
                         render_radar_chart(vertex_cols, filtered_df.iloc[0].iloc[0], sheet_names, sheet_dfs, invert_coordinates=invert_radar_coords)
+                        
                 st.markdown('</div>', unsafe_allow_html=True)
                 
+                # # 第二行：选中人员和生成评价
+                # st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                # row2_col1, row2_col2 = st.columns([0.4, 0.6])
+
+
+
+                # with row2_col1:
+                #     # 显示评价生成
+                #     if len(filtered_df) > 0:
+                #         current_name = filtered_df.iloc[0].iloc[0]
+                        
+                #         # 添加生成按钮
+                #         if st.button("生成评价", key="generate_eval"):
+                #             with st.spinner("正在生成评价..."):
+                #                 # 导入评价生成模块
+                #                 from qianwen_api import prepare_person_data, generate_evaluation
+                #                 from config import QWEN_API_KEY
+                                
+                #                 # 准备人员数据
+                #                 person_data = prepare_person_data(current_name, sheet_names, sheet_dfs)
+                                
+                #                 # 生成评价
+                #                 evaluation = generate_evaluation(person_data, current_name, QWEN_API_KEY)
+                                
+                #                 # 显示评价
+                #                 st.markdown(f"""
+                #                 <div style='background: rgba(102, 126, 234, 0.1); 
+                #                         padding: 15px; 
+                #                         border-radius: 10px; 
+                #                         margin-top: 10px;
+                #                         font-size: 14px;'>
+                #                     <h6 style='color: #4a5568; margin-bottom: 8px; font-size: 16px;'>📝 评价报告</h6>
+                #                     <p style='color: #2d3748; line-height: 1.6; margin: 0;'>{evaluation}</p>
+                #                 </div>
+                #                 """, unsafe_allow_html=True)
+                # st.markdown('</div>', unsafe_allow_html=True)
+
+
                 # 检查筛选后的数据是否为空
                 if len(filtered_df) > 0:
                     # 第二行：饼图、柱状图1、柱状图2放置在同一行
