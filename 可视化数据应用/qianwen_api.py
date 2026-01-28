@@ -90,6 +90,7 @@ def generate_evaluation(person_data, person_name, api_key, base_url, model):
 - 语言要专业但不晦涩
 - 突出数据支撑
 - 字数控制在150字左右
+- 数据中数值代表问题数量，数值越小问题越少
 """
         
         # 调用通义千问模型
