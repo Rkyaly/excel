@@ -91,7 +91,7 @@ def generate_evaluation(person_data, person_name, api_key, base_url, model):
 - 评价要客观、准确，简洁
 - 语言要专业但不晦涩
 - 数据中数值代表问题数量，数值越小问题越少，数值越大问题越多
-- 字数控制在150字左右
+- 字数控制在200字左右
 
 """
         
